@@ -167,4 +167,5 @@ fig.update_layout(
     title=f"Player Activity — {map_id}"
 )
 
+
 st.plotly_chart(fig)
