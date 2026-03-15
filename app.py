@@ -9,6 +9,7 @@ st.title("LILA Player Journey Explorer")
 
 DATA_FOLDER = "player_data"
 
+# Map images stored in root directory
 MAP_IMAGES = {
     "AmbroseValley": "AmbroseValley_Minimap.png",
     "GrandRift": "GrandRift_Minimap.png",
@@ -22,7 +23,7 @@ MAP_CONFIG = {
 }
 
 # -----------------------------
-# Load data
+# Check data folder
 # -----------------------------
 
 if not os.path.exists(DATA_FOLDER):
@@ -35,6 +36,10 @@ if len(days) == 0:
     st.error("No data inside player_data folder")
     st.stop()
 
+# -----------------------------
+# Select Day
+# -----------------------------
+
 day = st.selectbox("Select Day", days)
 
 files = os.listdir(os.path.join(DATA_FOLDER, day))
@@ -46,6 +51,10 @@ if len(files) == 0:
 file = st.selectbox("Select Player File", files)
 
 path = os.path.join(DATA_FOLDER, day, file)
+
+# -----------------------------
+# Load parquet
+# -----------------------------
 
 table = pq.read_table(path)
 df = table.to_pandas()
@@ -110,14 +119,24 @@ map_id = df["map_id"].iloc[0]
 
 config = MAP_CONFIG[map_id]
 
-# convert world coords → map coords
+# convert world coords → minimap coords
 df["u"] = (df["x"] - config["origin_x"]) / config["scale"]
 df["v"] = (df["z"] - config["origin_z"]) / config["scale"]
 
 df["px"] = df["u"] * 1024
 df["py"] = (1 - df["v"]) * 1024
 
-img = Image.open(MAP_IMAGES[map_id])
+# -----------------------------
+# Load map image safely
+# -----------------------------
+
+image_path = MAP_IMAGES.get(map_id)
+
+if not os.path.exists(image_path):
+    st.error(f"Map image not found: {image_path}")
+    st.stop()
+
+img = Image.open(image_path)
 
 # -----------------------------
 # Heatmap Toggle
