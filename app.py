@@ -1,102 +1,184 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
+import pyarrow.parquet as pq
+import os
 from PIL import Image
 import plotly.graph_objects as go
-import os
-
-# ── 1. Config ────────────────────────────────────────────────────────────────
 
 st.title("LILA Player Journey Explorer")
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_FOLDER = "player_data"
 
 MAP_IMAGES = {
-    "AmbroseValley": os.path.join(BASE_DIR, "maps", "AmbroseValley_Minimap.png"),
-    "GrandRift":     os.path.join(BASE_DIR, "maps", "GrandRift_Minimap.png"),
-    "Lockdown":      os.path.join(BASE_DIR, "maps", "Lockdown_Minimap.jpg"),
+    "AmbroseValley": "AmbroseValley_Minimap.png",
+    "GrandRift": "GrandRift_Minimap.png",
+    "Lockdown": "Lockdown_Minimap.jpg"
 }
 
 MAP_CONFIG = {
-    "AmbroseValley": {"scale": 900,  "origin_x": -370, "origin_z": -473},
-    "GrandRift":     {"scale": 581,  "origin_x": -290, "origin_z": -290},
-    "Lockdown":      {"scale": 1000, "origin_x": -500, "origin_z": -500},
+    "AmbroseValley": {"scale":900,"origin_x":-370,"origin_z":-473},
+    "GrandRift": {"scale":581,"origin_x":-290,"origin_z":-290},
+    "Lockdown": {"scale":1000,"origin_x":-500,"origin_z":-500}
 }
 
-map_id = st.selectbox("Select Map", list(MAP_IMAGES.keys()))
-config = MAP_CONFIG[map_id]
+# -----------------------------
+# Load data
+# -----------------------------
 
-# ── 2. Data Generation ───────────────────────────────────────────────────────
+if not os.path.exists(DATA_FOLDER):
+    st.error("player_data folder not found")
+    st.stop()
 
-NUM_POINTS = 300
+days = os.listdir(DATA_FOLDER)
 
-df = pd.DataFrame({
-    "x":         np.random.randint(-500, 500, NUM_POINTS),
-    "z":         np.random.randint(-500, 500, NUM_POINTS),
-    "event":     np.random.choice(["kill", "death", "loot", "storm_death"], NUM_POINTS),
-    "user_id":   np.random.choice(["playerA", "playerB", "playerC", "12345", "9999"], NUM_POINTS),
-    "match_id":  np.random.choice(["match_1", "match_2", "match_3"], NUM_POINTS),
-    "timestamp": np.random.randint(0, 500, NUM_POINTS),
-})
+if len(days) == 0:
+    st.error("No data inside player_data folder")
+    st.stop()
 
-df["player_type"] = df["user_id"].apply(
-    lambda x: "Bot" if str(x).isdigit() else "Human"
+day = st.selectbox("Select Day", days)
+
+files = os.listdir(os.path.join(DATA_FOLDER, day))
+
+if len(files) == 0:
+    st.error("No player files found")
+    st.stop()
+
+file = st.selectbox("Select Player File", files)
+
+path = os.path.join(DATA_FOLDER, day, file)
+
+table = pq.read_table(path)
+df = table.to_pandas()
+
+# decode event names
+df["event"] = df["event"].apply(lambda x: x.decode("utf-8") if isinstance(x, bytes) else x)
+
+# identify bots vs humans
+df["player_type"] = df["user_id"].apply(lambda x: "Bot" if str(x).isdigit() else "Human")
+
+# -----------------------------
+# Filters
+# -----------------------------
+
+event_filter = st.multiselect(
+    "Filter Events",
+    df["event"].unique(),
+    default=df["event"].unique()
 )
 
-# ── 3. Filters ───────────────────────────────────────────────────────────────
-
-event_filter  = st.multiselect("Filter Events", df["event"].unique(),       default=list(df["event"].unique()))
-player_filter = st.multiselect("Player Type",   df["player_type"].unique(), default=list(df["player_type"].unique()))
-match         = st.selectbox("Select Match",    df["match_id"].unique())
+player_filter = st.multiselect(
+    "Player Type",
+    df["player_type"].unique(),
+    default=df["player_type"].unique()
+)
 
 df = df[df["event"].isin(event_filter)]
 df = df[df["player_type"].isin(player_filter)]
+
+# -----------------------------
+# Match Filter
+# -----------------------------
+
+matches = df["match_id"].unique()
+match = st.selectbox("Select Match", matches)
+
 df = df[df["match_id"] == match]
 
-time_min, time_max = int(df["timestamp"].min()), int(df["timestamp"].max())
-selected_time = st.slider("Timeline", time_min, time_max, time_max)
-df = df[df["timestamp"] <= selected_time]
+# -----------------------------
+# Optional Timeline
+# -----------------------------
 
-# ── 4. Coordinate Transform ──────────────────────────────────────────────────
+if "timestamp" in df.columns:
 
-df["u"]  = (df["x"] - config["origin_x"]) / config["scale"]
-df["v"]  = (df["z"] - config["origin_z"]) / config["scale"]
+    time_min = int(df["timestamp"].min())
+    time_max = int(df["timestamp"].max())
+
+    selected_time = st.slider(
+        "Timeline",
+        time_min,
+        time_max,
+        time_max
+    )
+
+    df = df[df["timestamp"] <= selected_time]
+
+# -----------------------------
+# Map Setup
+# -----------------------------
+
+map_id = df["map_id"].iloc[0]
+
+config = MAP_CONFIG[map_id]
+
+# convert world coords → map coords
+df["u"] = (df["x"] - config["origin_x"]) / config["scale"]
+df["v"] = (df["z"] - config["origin_z"]) / config["scale"]
+
 df["px"] = df["u"] * 1024
 df["py"] = (1 - df["v"]) * 1024
 
-# ── 5. Visualization ─────────────────────────────────────────────────────────
+img = Image.open(MAP_IMAGES[map_id])
 
-img          = Image.open(MAP_IMAGES[map_id])
+# -----------------------------
+# Heatmap Toggle
+# -----------------------------
+
 show_heatmap = st.checkbox("Show Heatmap")
+
+# -----------------------------
+# Visualization
+# -----------------------------
 
 fig = go.Figure()
 
-fig.add_layout_image(dict(
-    source=img, x=0, y=0, sizex=1024, sizey=1024,
-    xref="x", yref="y", sizing="stretch", layer="below",
-))
+fig.add_layout_image(
+    dict(
+        source=img,
+        x=0,
+        y=0,
+        sizex=1024,
+        sizey=1024,
+        xref="x",
+        yref="y",
+        sizing="stretch",
+        layer="below"
+    )
+)
 
 if show_heatmap:
-    fig.add_trace(go.Histogram2d(
-        x=df["px"], y=df["py"],
-        colorscale="Hot", nbinsx=40, nbinsy=40,
-    ))
+
+    fig.add_trace(
+        go.Histogram2d(
+            x=df["px"],
+            y=df["py"],
+            colorscale="Hot",
+            nbinsx=40,
+            nbinsy=40
+        )
+    )
+
 else:
-    fig.add_trace(go.Scatter(
-        x=df["px"], y=df["py"],
-        mode="markers",
-        marker=dict(size=7, color="red"),
-        text=df["event"], name="Events",
-    ))
+
+    fig.add_trace(
+        go.Scatter(
+            x=df["px"],
+            y=df["py"],
+            mode="markers",
+            marker=dict(
+                size=7,
+                color="red"
+            ),
+            text=df["event"],
+            name="Events"
+        )
+    )
 
 fig.update_yaxes(autorange="reversed")
-fig.update_layout(width=900, height=900, title=f"Player Activity — {map_id}")
 
-# ── 6. Output ────────────────────────────────────────────────────────────────
-
-st.plotly_chart(fig)
-fig.update_layout(width=900, height=900, title=f"Player Activity — {map_id}")
-
-# ── 6. Output ────────────────────────────────────────────────────────────────
+fig.update_layout(
+    width=900,
+    height=900,
+    title=f"Player Activity — {map_id}"
+)
 
 st.plotly_chart(fig)
