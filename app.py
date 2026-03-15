@@ -3,15 +3,18 @@ import pandas as pd
 import numpy as np
 from PIL import Image
 import plotly.graph_objects as go
+import os
 
 # ── 1. Config ────────────────────────────────────────────────────────────────
 
 st.title("LILA Player Journey Explorer")
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
 MAP_IMAGES = {
-    "AmbroseValley": "maps/AmbroseValley_Minimap.png",
-    "GrandRift":     "maps/GrandRift_Minimap.png",
-    "Lockdown":      "maps/Lockdown_Minimap.jpg",
+    "AmbroseValley": os.path.join(BASE_DIR, "maps", "AmbroseValley_Minimap.png"),
+    "GrandRift":     os.path.join(BASE_DIR, "maps", "GrandRift_Minimap.png"),
+    "Lockdown":      os.path.join(BASE_DIR, "maps", "Lockdown_Minimap.jpg"),
 }
 
 MAP_CONFIG = {
@@ -42,8 +45,8 @@ df["player_type"] = df["user_id"].apply(
 
 # ── 3. Filters ───────────────────────────────────────────────────────────────
 
-event_filter  = st.multiselect("Filter Events", df["event"].unique(),        default=list(df["event"].unique()))
-player_filter = st.multiselect("Player Type",   df["player_type"].unique(),  default=list(df["player_type"].unique()))
+event_filter  = st.multiselect("Filter Events", df["event"].unique(),       default=list(df["event"].unique()))
+player_filter = st.multiselect("Player Type",   df["player_type"].unique(), default=list(df["player_type"].unique()))
 match         = st.selectbox("Select Match",    df["match_id"].unique())
 
 df = df[df["event"].isin(event_filter)]
@@ -87,6 +90,11 @@ else:
     ))
 
 fig.update_yaxes(autorange="reversed")
+fig.update_layout(width=900, height=900, title=f"Player Activity — {map_id}")
+
+# ── 6. Output ────────────────────────────────────────────────────────────────
+
+st.plotly_chart(fig)
 fig.update_layout(width=900, height=900, title=f"Player Activity — {map_id}")
 
 # ── 6. Output ────────────────────────────────────────────────────────────────
