@@ -1,10 +1,3 @@
-import subprocess
-import sys
-
-try:
-    import plotly
-except:
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "plotly"])
 import streamlit as st
 import pandas as pd
 import pyarrow.parquet as pq
