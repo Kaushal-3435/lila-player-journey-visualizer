@@ -1,20 +1,24 @@
 import streamlit as st
 import pandas as pd
-import pyarrow.parquet as pq
-import os
+import numpy as np
 from PIL import Image
 import plotly.graph_objects as go
 
 st.title("LILA Player Journey Explorer")
 
-DATA_FOLDER = "player_data"
+# -----------------------------
+# Map images
+# -----------------------------
 
-# Map images stored in root directory
 MAP_IMAGES = {
     "AmbroseValley": "AmbroseValley_Minimap.png",
     "GrandRift": "GrandRift_Minimap.png",
     "Lockdown": "Lockdown_Minimap.jpg"
 }
+
+# -----------------------------
+# Map configs
+# -----------------------------
 
 MAP_CONFIG = {
     "AmbroseValley": {"scale":900,"origin_x":-370,"origin_z":-473},
@@ -23,47 +27,23 @@ MAP_CONFIG = {
 }
 
 # -----------------------------
-# Check data folder
+# Map selector
 # -----------------------------
 
-if not os.path.exists(DATA_FOLDER):
-    st.error("player_data folder not found")
-    st.stop()
-
-days = os.listdir(DATA_FOLDER)
-
-if len(days) == 0:
-    st.error("No data inside player_data folder")
-    st.stop()
+map_id = st.selectbox("Select Map", list(MAP_IMAGES.keys()))
 
 # -----------------------------
-# Select Day
+# Generate sample gameplay data
 # -----------------------------
 
-day = st.selectbox("Select Day", days)
+num_points = st.slider("Number of player events", 100, 2000, 500)
 
-files = os.listdir(os.path.join(DATA_FOLDER, day))
-
-if len(files) == 0:
-    st.error("No player files found")
-    st.stop()
-
-file = st.selectbox("Select Player File", files)
-
-path = os.path.join(DATA_FOLDER, day, file)
-
-# -----------------------------
-# Load parquet
-# -----------------------------
-
-table = pq.read_table(path)
-df = table.to_pandas()
-
-# decode event names
-df["event"] = df["event"].apply(lambda x: x.decode("utf-8") if isinstance(x, bytes) else x)
-
-# identify bots vs humans
-df["player_type"] = df["user_id"].apply(lambda x: "Bot" if str(x).isdigit() else "Human")
+df = pd.DataFrame({
+    "x": np.random.uniform(-500,500,num_points),
+    "z": np.random.uniform(-500,500,num_points),
+    "event": np.random.choice(["kill","death","loot","storm"],num_points),
+    "player_type": np.random.choice(["Human","Bot"],num_points)
+})
 
 # -----------------------------
 # Filters
@@ -85,41 +65,11 @@ df = df[df["event"].isin(event_filter)]
 df = df[df["player_type"].isin(player_filter)]
 
 # -----------------------------
-# Match Filter
+# Coordinate conversion
 # -----------------------------
-
-matches = df["match_id"].unique()
-match = st.selectbox("Select Match", matches)
-
-df = df[df["match_id"] == match]
-
-# -----------------------------
-# Optional Timeline
-# -----------------------------
-
-if "timestamp" in df.columns:
-
-    time_min = int(df["timestamp"].min())
-    time_max = int(df["timestamp"].max())
-
-    selected_time = st.slider(
-        "Timeline",
-        time_min,
-        time_max,
-        time_max
-    )
-
-    df = df[df["timestamp"] <= selected_time]
-
-# -----------------------------
-# Map Setup
-# -----------------------------
-
-map_id = df["map_id"].iloc[0]
 
 config = MAP_CONFIG[map_id]
 
-# convert world coords → minimap coords
 df["u"] = (df["x"] - config["origin_x"]) / config["scale"]
 df["v"] = (df["z"] - config["origin_z"]) / config["scale"]
 
@@ -127,19 +77,13 @@ df["px"] = df["u"] * 1024
 df["py"] = (1 - df["v"]) * 1024
 
 # -----------------------------
-# Load map image safely
+# Load map image
 # -----------------------------
 
-image_path = MAP_IMAGES.get(map_id)
-
-if not os.path.exists(image_path):
-    st.error(f"Map image not found: {image_path}")
-    st.stop()
-
-img = Image.open(image_path)
+img = Image.open(MAP_IMAGES[map_id])
 
 # -----------------------------
-# Heatmap Toggle
+# Heatmap toggle
 # -----------------------------
 
 show_heatmap = st.checkbox("Show Heatmap")
@@ -183,12 +127,8 @@ else:
             x=df["px"],
             y=df["py"],
             mode="markers",
-            marker=dict(
-                size=7,
-                color="red"
-            ),
-            text=df["event"],
-            name="Events"
+            marker=dict(size=6,color="red"),
+            text=df["event"]
         )
     )
 
